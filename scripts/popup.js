@@ -1,9 +1,20 @@
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", initPopup);
+
+function initPopup() {
   loadSettings();
+  setupEventListeners();
+}
+
+function setupEventListeners() {
+  document.getElementById("reset-settings")?.addEventListener("click", resetSettings);
+  document.getElementById("save-settings")?.addEventListener("click", saveSettings);
+  document.getElementById("import-settings")?.addEventListener("change", importSettings);
+
+  setupPickerMode();
   setupCollapsibleSections();
   setupInputChangeListeners();
   setupSearch();
-});
+}
 
 chrome.runtime.onMessage.addListener(function (message) {
   if (message.type === "popup") {
@@ -11,93 +22,96 @@ chrome.runtime.onMessage.addListener(function (message) {
   }
 });
 
-document.getElementById("reset-settings").addEventListener("click", () => {
-  chrome.storage.local.clear(() => {
-    console.info("Settings cleared.");
-  });
-  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    chrome.tabs.sendMessage(tabs[0].id, {
-      action: "clearLocalStorage",
-    });
-  });
+/**
+ *
+ */
+function resetSettings() {
+  chrome.storage.local.clear(() => console.info("Settings cleared."));
+  sendMessageToActiveTab({action: "clearLocalStorage"});
   window.close();
-});
+}
 
-document.getElementById("save-settings").addEventListener("click", () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-    chrome.tabs.sendMessage(tabs[0].id, {
-      action: "saveSettings",
-    });
+/**
+ *
+ */
+function saveSettings() {
+  sendMessageToActiveTab({action: "saveSettings"});
+}
+
+/**
+ *
+ * @param event
+ * @returns {Promise<void>}
+ */
+async function importSettings(event) {
+  const file = event.target.files.item(0);
+  if (!file) return;
+
+  const text = await file.text();
+  sendMessageToActiveTab({action: "importSettings", content: text});
+}
+
+/**
+ * Handles Picker Mode switch toggle
+ */
+function setupPickerMode() {
+  const pickerModeSwitch = document.getElementById("picker-mode");
+  if (!pickerModeSwitch) return;
+
+  // Restore switch state from storage.
+  chrome.storage.local.get(["tubemod_pickerMode"], (result) => {
+    pickerModeSwitch.checked = result.tubemod_pickerMode || false;
   });
-});
 
-document
-  .getElementById("import-settings")
-  .addEventListener("change", async (e) => {
-    let file = e.target.files.item(0);
-
-    const text = await file.text();
-    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-      chrome.tabs.sendMessage(tabs[0].id, {
-        action: "importSettings",
-        content: text,
-      });
-    });
+  pickerModeSwitch.addEventListener("change", (event) => {
+    const enabled = event.target.checked;
+    chrome.storage.local.set({tubemod_pickerMode: enabled});
+    sendMessageToActiveTab({action: "togglePickerMode", enabled});
   });
-
-// [...document.querySelectorAll('#sidebar input')].every(checkbox => checkbox.checked) -> if all the checkboxes are checked, we may want to collapse the sidebar or simply remove the left margin
+}
 
 /**
  * Loads saved settings from Chrome's local storage and applies them to the UI.
- * Retrieves stored elements and updates their checked state accordingly.
  */
 function loadSettings() {
   chrome.storage.local.get(["tubemod_elements"], (result) => {
     const elements = result.tubemod_elements ? JSON.parse(result.tubemod_elements) : null;
+    if (!elements) return;
 
-    if (elements) {
-      elements.forEach((element) => {
-        const el = document.getElementById(element.id);
-        if (el) {
-          el.checked = element.checked;
-        }
-      });
-    }
+    elements.forEach(({id, checked}) => {
+      const el = document.getElementById(id);
+      if (el) el.checked = checked;
+    });
   });
 }
 
 /**
- * Initializes collapsible sections by adding event listeners.
+ * Initializes collapsible sections with event listeners.
  * Toggles the visibility of the associated content when clicked.
  */
 function setupCollapsibleSections() {
-  const collapsibleElements = document.getElementsByClassName("collapsible");
-  for (let i = 0; i < collapsibleElements.length; i++) {
-    collapsibleElements[i].addEventListener("click", function () {
-      this.classList.toggle("active");
-      const content = this.nextElementSibling;
-      content.style.display = content.style.display === "block" ? "none" : "block";
+  document.querySelectorAll(".collapsible").forEach((element) => {
+    element.addEventListener("click", () => {
+      element.classList.toggle("active");
+      const content = element.nextElementSibling;
+      if (content) {
+        content.style.display = content.style.display === "block" ? "none" : "block";
+      }
     });
-  }
+  });
 }
 
 /**
- * Adds event listeners to input elements to detect changes.
- * Sends a message to the active tab to apply the changes in real time.
+ * Listens for changes in input fields and syncs them to the active tab.
  */
 function setupInputChangeListeners() {
-  const inputs = document.querySelectorAll("input");
-  inputs.forEach((element) => {
+  document.querySelectorAll("input").forEach((element) => {
     element.addEventListener("change", () => {
-      chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-        if (tabs.length > 0) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: {
-              target: element.id,
-              hide: element.checked,
-            },
-          });
-        }
+      sendMessageToActiveTab({
+        action: {
+          target: element.id,
+          hide: element.checked,
+        },
       });
     });
   });
@@ -108,35 +122,49 @@ function setupInputChangeListeners() {
  */
 function setupSearch() {
   const searchInput = document.getElementById("search-input");
+  if (!searchInput) return;
+
   const containers = document.querySelectorAll(".container");
-  const collapsibleElements = document.getElementsByClassName("collapsible");
+  const collapsibles = document.querySelectorAll(".collapsible");
 
   searchInput.addEventListener("input", () => {
-    const searchTerm = searchInput.value.toLowerCase();
+    const searchTerm = searchInput.value.trim().toLowerCase();
 
     // Open all collapsible containers when searching, close them otherwise.
-    for (let i = 0; i < collapsibleElements.length; i++) {
-      const content = collapsibleElements[i].nextElementSibling;
-      content.style.display = searchTerm !== "" ? "block" : "none";
-    }
+    collapsibles.forEach((collapsible) => {
+      const content = collapsible.nextElementSibling;
+
+      if (content) {
+        content.style.display = searchTerm ? "block" : "none";
+      }
+    });
 
     containers.forEach((container) => {
-      //let containerVisible = false;
       const labels = container.querySelectorAll("label");
 
       labels.forEach((label) => {
-        const labelText = label.textContent.toLowerCase().trim();
-
-        if (labelText === "" || labelText === " ") {
-          return;
-        }
+        const labelText = label.textContent.trim().toLowerCase();
+        if (!labelText || labelText === "" || labelText === " ") return;
 
         const checkboxContainer = label.closest(".checkbox-container");
-
-        const match = searchTerm ? labelText.includes(searchTerm) : true;
-
-        checkboxContainer.style.display = match ? "flex" : "none";
+        if (checkboxContainer) {
+          checkboxContainer.style.display = labelText.includes(searchTerm) ? "flex" : "none";
+        }
       });
     });
   });
 }
+
+/**
+ * Sends a message to the active tab in the current window.
+ * @param {Object} message - The message object to send.
+ */
+function sendMessageToActiveTab(message) {
+  chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+    if (tabs.length > 0) {
+      chrome.tabs.sendMessage(tabs[0].id, message);
+    }
+  });
+}
+
+// [...document.querySelectorAll('#sidebar input')].every(checkbox => checkbox.checked) -> if all the checkboxes are checked, we may want to collapse the sidebar or simply remove the left margin

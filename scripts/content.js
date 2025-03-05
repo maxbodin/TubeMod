@@ -1223,3 +1223,84 @@ class TubeMod {
 }
 
 const tubeMod = new TubeMod();
+
+class PickerMode {
+  constructor() {
+    this.pickerMode = false;
+    this.lastElement = null;
+
+    this.init();
+  }
+
+  async init() {
+    // Restore picker mode state on load.
+    const result = await this.getStorage("tubemod_pickerMode");
+    this.pickerMode = result || false;
+
+    if (this.pickerMode) {
+      this.enablePickerMode();
+    }
+
+    chrome.runtime.onMessage.addListener((message) => this.handleMessage(message));
+  }
+
+  async getStorage(key) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([key], (result) => resolve(result[key]));
+    });
+  }
+
+  setStorage(key, value) {
+    chrome.storage.local.set({ [key]: value });
+  }
+
+  handleMessage(message) {
+    console.log(message);
+    if (message.action === "togglePickerMode") {
+      this.pickerMode = message.enabled;
+      this.setStorage("tubemod_pickerMode", this.pickerMode);
+
+      this.pickerMode ? this.enablePickerMode() : this.disablePickerMode();
+    }
+  }
+
+  enablePickerMode() {
+    document.addEventListener("mouseover", this.highlightElement.bind(this));
+    document.addEventListener("click", this.removeElement.bind(this));
+  }
+
+  disablePickerMode() {
+    document.removeEventListener("mouseover", this.highlightElement.bind(this));
+    document.removeEventListener("click", this.removeElement.bind(this));
+
+    if (this.lastElement) {
+      this.lastElement.style.outline = "";
+    }
+  }
+
+  highlightElement(event) {
+    if (this.lastElement) {
+      this.lastElement.style.outline = "";
+      this.lastElement.style.backgroundColor = "";
+    }
+
+    this.lastElement = event.target;
+    this.lastElement.style.outline = "2px solid blue";
+    this.lastElement.style.backgroundColor = "rgba(255, 255, 255, 0.2)";
+  }
+
+  removeElement(event) {
+    if (!this.pickerMode || !this.lastElement) return;
+
+    event.preventDefault(); // Prevent unintended clicks (e.g., links).
+    event.stopPropagation(); // Prevent event bubbling.
+
+    // Ensure we're not removing the entire body or essential elements.
+    if (this.lastElement.tagName.toLowerCase() !== "body" && this.lastElement !== document.documentElement) {
+      this.lastElement.remove();
+      this.lastElement = null; // Reset lastElement after removal.
+    }
+  }
+}
+
+const pickermode = new PickerMode();

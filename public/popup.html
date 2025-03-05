@@ -16,6 +16,18 @@
       <input type="text" id="search-input" placeholder="e.g., comments">
     </div>
 
+    <div class="checkbox-container" style="margin-bottom: 10px;">
+      <label for="picker-mode">Enter Picker Mode</label>
+      <label class="switch">
+        <input
+          type="checkbox"
+          id="picker-mode"
+          name="picker-mode"
+        />
+        <span class="slider round"></span>
+      </label>
+    </div>
+
     <button class="collapsible">General</button>
     <div class="container" id="general" style="display: none">
       <div class="checkbox-container">
@@ -883,7 +895,7 @@
     <div class="btn-settings-container">
       <label class="button" for="import-settings">Import Settings</label>
       <input id="import-settings" type="file" accept=".json" hidden>
-      <button class="button" id="save-settings">Export Settings</button>   
+      <button class="button" id="save-settings">Export Settings</button>
       <button class="button" id="reset-settings">Reset Settings</button>
     </div>
 
